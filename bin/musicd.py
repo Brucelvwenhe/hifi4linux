@@ -23,7 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 HOME = os.path.expanduser("~")
-MUSIC_DIRS = [os.path.join(HOME, "音乐")]
+MUSIC_DIRS = [d for d in os.environ.get(
+    "HIFI_MUSIC_DIRS", os.path.join(HOME, "音乐")).split(":") if d]
 CACHE_DIR = os.path.join(HOME, ".cache", "musicd")
 LIB_CACHE = os.path.join(CACHE_DIR, "library.json")
 ART_CACHE = os.path.join(CACHE_DIR, "art")
