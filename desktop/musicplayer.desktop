@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=音乐库 (HiFi 播放器)
+Name[zh_CN]=音乐库 (HiFi 播放器)
+GenericName=Music Player
+Comment=本地音乐库播放器：歌词 · 封面 · 频谱 · 音质检测 · 一键 HiFi 直出
+Comment[zh_CN]=本地音乐库播放器：歌词 · 封面 · 频谱 · 音质检测 · 一键 HiFi 直出
+Exec=__PLAYER_BIN__ %F
+Icon=audio-card
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=audio/flac;audio/x-flac;audio/wav;audio/mpeg;audio/mp4;audio/x-ape;audio/ogg;
+Keywords=music;hifi;flac;无损;音乐;
+StartupWMClass=音乐库

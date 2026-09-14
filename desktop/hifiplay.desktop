@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=HiFi 直出播放 (hifiplay)
+Name[zh_CN]=HiFi 直出播放 (hifiplay)
+GenericName=Bit-perfect Player
+Comment=Bit-perfect 直出播放：ALSA 独占 · 绕开 PipeWire · 原始采样率
+Comment[zh_CN]=Bit-perfect 直出播放：ALSA 独占 · 绕开 PipeWire · 原始采样率
+Exec=__HIFIPLAY_BIN__ %F
+Icon=audio-card
+Terminal=true
+Categories=AudioVideo;Audio;Player;
+MimeType=audio/flac;audio/x-flac;audio/wav;audio/x-wav;audio/mpeg;audio/ogg;audio/x-ape;audio/mp4;
+Keywords=flac;wav;hifi;bitperfect;无损;

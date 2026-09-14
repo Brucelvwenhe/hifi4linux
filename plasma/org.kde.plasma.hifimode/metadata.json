@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "local"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "HiFi 直出模式开关：只从 USB DAC 出声、采样率跟随音源、独占播放",
+        "Description[zh_CN]": "HiFi 直出模式开关：只从 USB DAC 出声、采样率跟随音源、独占播放",
+        "Icon": "audio-card",
+        "Id": "org.kde.plasma.hifimode",
+        "License": "GPL-2.0+",
+        "Name": "HiFi 直出模式",
+        "Name[zh_CN]": "HiFi 直出模式",
+        "Version": "1.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

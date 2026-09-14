@@ -1,0 +1,95 @@
+#!/bin/bash
+# ============================================================
+#  hifiplay —— bit-perfect 直出播放器（mpv + ALSA 独占）
+#
+#  与在线播放器的根本区别：
+#    · 完全绕开 PipeWire —— 直接用 ALSA 独占模式打开 USB DAC 的硬件设备
+#    · 以文件原始采样率输出（不重采样）
+#    · 音频数据从解码到 DAC 全程无二次加工
+#
+#  用法：
+#    hifiplay 歌曲.flac              播放单个文件
+#    hifiplay 专辑目录/               播放整个目录
+#    hifiplay 文件1.flac 文件2.flac   播放列表
+#    hifiplay --info 歌曲.flac       只看格式信息，不播放
+#    hifiplay                         打开一个简易选择界面（fzf/zenity）
+#
+#  说明：
+#    · 音量固定 100%（软件音量会破坏 bit-perfect），请用 DAC/功放调音量
+#    · 键盘：空格暂停 · q 退出 · ←/→ 快退快进 · 9/0 调音量（不建议）
+# ============================================================
+set -u
+
+# ---------- 找 USB DAC 对应的 ALSA 卡号 ----------
+find_dac_card() {
+    # 显式指定优先（HIFI_DAC_CARD=1）
+    if [ -n "${HIFI_DAC_CARD:-}" ]; then
+        echo "$HIFI_DAC_CARD"; return
+    fi
+    # 有 usbid 的就是 USB 声卡
+    for d in /proc/asound/card*/usbid; do
+        [ -e "$d" ] || continue
+        basename "$(dirname "$d")" | sed 's/card//'
+        return
+    done
+}
+
+card_name() {
+    grep -m1 "^ *$1 \[" /proc/asound/cards 2>/dev/null | sed 's/.*\[\(.*\)\].*/\1/' | xargs
+}
+
+card_rates() {
+    grep -oE 'Rates: .*' "/proc/asound/card$1/stream0" 2>/dev/null \
+        | sed 's/Rates: //' | tr ',' ' ' | tr '\n' ' ' | xargs
+}
+
+# ---------- 查看文件格式 ----------
+if [ "${1:-}" = "--info" ]; then
+    shift
+    for f in "$@"; do
+        [ -f "$f" ] || continue
+        ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels,bits_per_raw_sample,bits_per_sample \
+                -of default=noprint_wrappers=1 "$f" 2>/dev/null \
+            | sed 's/^/    /'
+        echo "    ── $(basename "$f")"
+    done
+    exit 0
+fi
+
+# ---------- 无参数：用图形选择器挑文件 ----------
+if [ $# -eq 0 ]; then
+    if command -v zenity >/dev/null 2>&1; then
+        sel=$(zenity --file-selection --multiple --title="选择音乐文件" \
+              --file-filter='音频 | *.flac *.wav *.ape *.dsf *.dff *.m4a *.mp3 *.ogg *.opus *.wv' 2>/dev/null \
+              | tr '|' '\n')
+        [ -z "$sel" ] && exit 0
+        set -- $sel
+    else
+        echo "用法: hifiplay <文件/目录>..." >&2
+        exit 2
+    fi
+fi
+
+CARD=$(find_dac_card)
+BASE_OPTS=(--no-video --gapless-audio=yes --volume=100 --keep-open=no
+           --term-playing-msg="▶ \${media-title}  [\${audio-codec} \${audio-params/channel-count}ch \${audio-params/samplerate}Hz]")
+
+if [ -n "$CARD" ]; then
+    NAME=$(card_name "$CARD")
+    RATES=$(card_rates "$CARD")
+    echo "════════════════════════════════════════════════"
+    echo "  bit-perfect 直出模式"
+    echo "  DAC    : $NAME  (hw:$CARD,0)"
+    echo "  支持   : ${RATES:-未知} Hz"
+    echo "  方式   : ALSA 独占 · 绕开 PipeWire · 原始采样率"
+    echo "════════════════════════════════════════════════"
+    exec mpv "${BASE_OPTS[@]}" \
+        --ao=alsa --audio-device="alsa/hw:$CARD,0" --audio-exclusive=yes \
+        "$@"
+else
+    echo "════════════════════════════════════════════════"
+    echo "  ⚠ 没找到 USB DAC，回退到系统默认输出"
+    echo "    （插上 USB 声卡再运行即可 bit-perfect 直出）"
+    echo "════════════════════════════════════════════════"
+    exec mpv "${BASE_OPTS[@]}" --ao=pipewire "$@"
+fi

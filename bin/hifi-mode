@@ -1,0 +1,340 @@
+#!/bin/bash
+# ============================================================
+#  hifi-mode —— 高保真直出模式（通用版，不绑定具体设备）
+#
+#  开启后：
+#    1. 自动识别 USB 声卡（按 device.bus=usb），只从它出声，
+#       其它声卡（板载/HDMI）自动静音
+#    2. 强制 PipeWire 图采样率跟随当前播放流的采样率，
+#       并重开设备使其立即生效 → 消除 PipeWire 重采样
+#    3. 独占：USB DAC 上只保留一路流出声，其它流自动静音
+#
+#  用法：  hifi-mode on | off | toggle | status | metrics | info | rescue
+#  可选环境变量：
+#    HIFI_DAC=<关键字>    手动指定声卡（不设则自动找 USB 声卡）
+#    HIFI_EXCLUSIVE=1     1 = 独占（暂停其它流）。默认 0=不独占
+# ============================================================
+set -u
+
+EXCLUSIVE="${HIFI_EXCLUSIVE:-0}"
+RUNDIR="${XDG_RUNTIME_DIR:-/tmp}/hifi-mode"
+FLAG="$RUNDIR/enabled"
+WATCH_PID="$RUNDIR/watch.pid"
+SAVED_SINKS="$RUNDIR/saved-sinks.json"
+SAVED_DEFAULT="$RUNDIR/saved-default-sink"
+RATE_FILE="$RUNDIR/current-rate"
+DAC_FILE="$RUNDIR/dac-name"
+
+mkdir -p "$RUNDIR"
+export LC_ALL=C.UTF-8
+
+have() { command -v "$1" >/dev/null 2>&1; }
+say()  { have notify-send && notify-send -i audio-card "$1" "$2" 2>/dev/null; }
+pactlq() { pactl "$@" 2>/dev/null; }
+
+# ---------- 通用 USB 声卡识别 ----------
+# 返回 USB 输出设备的 sink 名（优先当前默认设备）
+dac_name() {
+    if [ -n "${HIFI_DAC:-}" ]; then
+        pactlq -f json list sinks | jq -r --arg k "$HIFI_DAC" '[.[] | select(.name|test($k;"i"))][0].name // empty'
+        return
+    fi
+    local def
+    def=$(pactlq get-default-sink)
+    pactlq -f json list sinks | jq -r --arg def "$def" '
+        [ .[] | select((.properties["device.bus"] // "") == "usb") ] as $usb
+        | if ($usb|length) == 0 then empty
+          else (($usb | map(select(.name == $def)) | .[0]) // $usb[0]) | .name
+          end'
+}
+find_dac_card() {
+    if [ -n "${HIFI_DAC_CARD:-}" ]; then echo "$HIFI_DAC_CARD"; return; fi
+    for x in /proc/asound/card*/usbid; do
+        [ -e "$x" ] || continue
+        basename "$(dirname "$x")" | sed 's/card//'
+        return
+    done
+}
+
+dac_index() {
+    local n; n=$(dac_name)
+    [ -z "$n" ] && return
+    pactlq -f json list sinks | jq -r --arg n "$n" '.[] | select(.name==$n) | .index'
+}
+dac_desc() {
+    local n; n=$(dac_name)
+    [ -z "$n" ] && return
+    pactlq -f json list sinks | jq -r --arg n "$n" '.[] | select(.name==$n) | (.properties["device.description"] // $n)'
+}
+
+# USB 声卡硬件支持的采样率（直接读 ALSA，换设备也通用）
+usb_supported_rates() {
+    local d rates=""
+    for d in /proc/asound/card*/usbid; do
+        [ -e "$d" ] || continue
+        local cd; cd=$(dirname "$d")
+        rates="$rates $(grep -oE 'Rates: .*' "$cd/stream0" 2>/dev/null | sed 's/Rates: //' | tr ',' ' ')"
+    done
+    printf '%s\n' $rates 2>/dev/null | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' '
+}
+
+rate_supported() {
+    local r="$1" sup; sup=$(usb_supported_rates)
+    [ -z "$sup" ] && return 0          # 读不到就不拦
+    case " $sup " in *" $r "*) return 0 ;; esac
+    return 1
+}
+
+# ---------- 采样率跟随 + 独占 ----------
+watch_loop() {
+    echo $$ > "$WATCH_PID"
+    local last=""
+    while [ -f "$FLAG" ]; do
+        local d dn
+        d=$(dac_index); dn=$(dac_name)
+        if [ -z "$d" ]; then sleep 2; continue; fi
+
+        local streams
+        streams=$(pactlq -f json list sink-inputs \
+            | jq -c --argjson d "$d" '[.[] | select(.sink==$d and (.corked|not))] | sort_by(.index)')
+        local n; n=$(printf '%s' "$streams" | jq 'length' 2>/dev/null || echo 0)
+
+        if [ "${n:-0}" -ge 1 ]; then
+            local rate
+            rate=$(printf '%s' "$streams" | jq -r '.[0].sample_specification' | grep -oE '[0-9]+Hz' | tr -dc '0-9')
+            if [ -n "$rate" ] && [ "$rate" != "$last" ]; then
+                if rate_supported "$rate"; then
+                    pw-metadata -n settings 0 clock.force-rate "$rate" >/dev/null 2>&1
+                    # 重开设备，让新采样率立即生效（否则要等图重新协商）
+                    pactlq suspend-sink "$dn" 1; sleep 0.3; pactlq suspend-sink "$dn" 0
+                    echo "$rate" > "$RATE_FILE"
+                else
+                    echo "unsupported" > "$RATE_FILE"
+                fi
+                last="$rate"
+            fi
+            # 独占（可选，默认关闭）：暂停其它流而不是静音它们。
+            # 不要用 mute —— PipeWire 的 module-stream-restore 会按应用名持久化静音状态，
+            # 导致该应用之后每次新建音频流都被自动静音（这是之前"没声音"的根因）。
+            if [ "$EXCLUSIVE" = "1" ]; then
+                printf '%s' "$streams" | jq -r '.[1:][] | .index' 2>/dev/null | while read -r id; do
+                    [ -n "$id" ] && pactlq suspend-sink-input "$id" 1
+                done
+            fi
+        else
+            last=""
+        fi
+        sleep 1.5
+    done
+    rm -f "$WATCH_PID"
+}
+
+do_on() {
+    if [ -f "$FLAG" ]; then echo "HiFi 模式已在开启状态"; return 0; fi
+
+    local dn d
+    dn=$(dac_name); d=$(dac_index)
+    if [ -z "$dn" ]; then
+        say "HiFi 模式：开启失败" "没有找到 USB 输出设备（可设 HIFI_DAC=关键字 手动指定）"
+        echo "未找到 USB 音频输出设备" >&2
+        return 1
+    fi
+
+    pactlq get-default-sink > "$SAVED_DEFAULT"
+    pactlq -f json list sinks | jq -c '[.[] | {index, mute}]' > "$SAVED_SINKS"
+    printf '%s\n' "$dn" > "$DAC_FILE"
+
+    pactlq set-default-sink "$dn"
+    pactlq -f json list sinks | jq -r --argjson d "$d" '.[] | select(.index != $d) | .index' \
+        | while read -r i; do pactlq set-sink-mute "$i" 1; done
+
+    touch "$FLAG"
+    setsid "$0" __watch >/dev/null 2>&1 &
+
+    local desc; desc=$(dac_desc)
+    say "HiFi 直出模式：已开启" "只从「${desc:-USB DAC}」出声 · 采样率跟随音源 · 独占播放"
+    echo "HiFi 模式已开启（设备：${desc:-$dn}）"
+    echo "支持的采样率：$(usb_supported_rates)"
+}
+
+do_off() {
+    if [ ! -f "$FLAG" ]; then echo "HiFi 模式已是关闭状态"; return 0; fi
+
+    rm -f "$FLAG"
+    [ -f "$WATCH_PID" ] && kill "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null
+    rm -f "$WATCH_PID" "$RATE_FILE"
+
+    pw-metadata -n settings 0 clock.force-rate 0 >/dev/null 2>&1
+
+    if [ -s "$SAVED_DEFAULT" ]; then
+        pactlq set-default-sink "$(cat "$SAVED_DEFAULT")"
+    fi
+    if [ -s "$SAVED_SINKS" ]; then
+        jq -r '.[] | "\(.index) \(.mute)"' "$SAVED_SINKS" 2>/dev/null | while read -r idx m; do
+            pactlq set-sink-mute "$idx" "$([ "$m" = "true" ] && echo 1 || echo 0)"
+        done
+    fi
+    # 所有播放流：取消静音 + 取消暂停（双保险）
+    pactlq -f json list sink-inputs | jq -r '.[].index' 2>/dev/null | while read -r i; do
+        pactlq set-sink-input-mute "$i" 0
+        pactlq suspend-sink-input "$i" 0
+    done
+
+    say "HiFi 直出模式：已关闭" "已恢复共享输出与自动重采样"
+    echo "HiFi 模式已关闭"
+}
+
+# 采样格式 -> 位深（s32le=32, s24le3=24, s16le=16, float32le=32 浮点）
+fmt_bits() {
+    case "$1" in
+        *s16*)     echo "16" ;;
+        *s24*)     echo "24" ;;
+        *s32*)     echo "32" ;;
+        *float32*) echo "32 (float)" ;;
+        *float64*) echo "64 (float)" ;;
+        *)         echo "" ;;
+    esac
+}
+
+
+# ---------- ALSA 硬件真实参数（最权威，独占模式也准确）----------
+# Pactl/PipeWire 在 ALSA 独占模式下看不到流，必须直接读内核参数
+alsa_hw() {
+    local card="$1"
+    local f="/proc/asound/card${card}/pcm0p/sub0/hw_params"
+    [ -r "$f" ] || { echo "|"; return; }
+    [ "$(head -1 "$f" 2>/dev/null)" = "closed" ] && { echo "|"; return; }
+    local fmt rate
+    fmt=$(grep -m1 '^format:' "$f" 2>/dev/null | awk '{print $2}')
+    rate=$(grep -m1 '^rate:' "$f" 2>/dev/null | awk '{print $2}')
+    echo "${rate}|${fmt}"
+}
+
+# ---------- 播放器当前曲目的采样率（独占时 PipeWire 看不到流）----------
+player_rate() {
+    # 后端调用本脚本时必须跳过，否则 后端 -> hifi-mode -> 后端 会死循环
+    [ "${HIFI_NO_PLAYER:-0}" = "1" ] && return
+    # 输出 rate|bits|codec，独占模式下这是唯一能知道源格式的途径
+    curl -s --max-time 2 http://127.0.0.1:8787/state 2>/dev/null \
+        | jq -r 'if .playing then "\(.rate)|\(.bits)|\(.codec)" else empty end' 2>/dev/null
+}
+
+# s16le -> 16, s24le3 -> 24, s32le -> 32
+bits_of_fmt() {
+    case "$1" in
+        *S16*|*s16*) echo 16 ;;
+        *S24*|*s24*) echo 24 ;;
+        *S32*|*s32*) echo 32 ;;
+        *) echo "" ;;
+    esac
+}
+
+# ---------- 关键指标采集 ----------
+# 输出: 源采样率|链路采样率|链路格式|是否直出|应用|流数|图采样率|设备|链路位深|流格式|流位深
+metrics() {
+    local dn d link="" app="" srate="" sspec="" n=0 hw_rate="" hw_fmt=""
+
+    dn=$(dac_name); d=$(dac_index)
+
+    # 1) 链路：优先 ALSA 硬件真实参数（独占模式唯一准确来源）
+    local card; card=$(find_dac_card)
+    if [ -n "$card" ]; then
+        local hw; hw=$(alsa_hw "$card")
+        hw_rate="${hw%%|*}"; hw_fmt="${hw##*|}"
+    fi
+
+    # 2) PipeWire 侧信息（共享模式下才有）
+    if [ -n "$d" ]; then
+        link=$(pactlq -f json list sinks | jq -r --arg n "$dn" '.[]|select(.name==$n)|.sample_specification')
+        local streams
+        streams=$(pactlq -f json list sink-inputs \
+            | jq -c --argjson d "$d" '[.[] | select(.sink==$d and (.corked|not))] | sort_by(.index)')
+        n=$(printf '%s' "$streams" | jq 'length' 2>/dev/null || echo 0)
+        sspec=$(printf '%s' "$streams" | jq -r '.[0].sample_specification // ""')
+        srate=$(printf '%s' "$sspec" | grep -oE '[0-9]+Hz' | tr -dc '0-9')
+        app=$(printf '%s' "$streams" | jq -r '.[0].properties["application.name"] // ""')
+    fi
+
+    # 3) 源采样率：PipeWire 看不到流时（独占模式）问播放器
+    local prate; prate=$(player_rate)
+    local pbits="" pcodec=""
+    if [ -n "$prate" ]; then
+        srate="${prate%%|*}"
+        local rest="${prate#*|}"
+        pbits="${rest%%|*}"
+        pcodec="${rest##*|}"
+        [ -z "$app" ] && app="${pcodec:-本地播放器}"
+        [ -z "$sspec" ] && sspec="${pcodec} ${srate}Hz ${pbits}bit（ALSA 独占）"
+    fi
+
+    # 4) 链路采样率：ALSA 硬件优先
+    local lrate="$hw_rate"
+    [ -z "$lrate" ] && lrate=$(printf '%s' "$link" | grep -oE '[0-9]+Hz' | tr -dc '0-9')
+    local lfmt="${hw_fmt:-$(printf '%s' "$link" | sed 's/ .*//')}"
+
+    local bp=0
+    [ -n "$srate" ] && [ "$srate" = "$lrate" ] && bp=1
+
+    local graph; graph=$(pw-metadata -n settings 2>/dev/null \
+        | grep "key:'clock.rate'" | grep -oE "value:'[0-9]+'" | grep -oE '[0-9]+')
+
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' \
+        "$srate" "$lrate" "$lfmt" "$bp" "$app" "$n" "$graph" "$(dac_desc)" \
+        "$(bits_of_fmt "$lfmt")" "$sspec" "$(bits_of_fmt "$sspec")" "${pbits:-}"
+}
+
+case "${1:-status}" in
+    on)      do_on ;;
+    off)     do_off ;;
+    toggle)  if [ -f "$FLAG" ]; then do_off; else do_on; fi ;;
+    rescue)
+        # 一键救急：不管什么状态，强制恢复所有音频
+        rm -f "$FLAG"
+        [ -f "$WATCH_PID" ] && kill "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null
+        rm -f "$WATCH_PID" "$RATE_FILE"
+        pw-metadata -n settings 0 clock.force-rate 0 >/dev/null 2>&1
+        pactlq -f json list sinks | jq -r '.[].index' 2>/dev/null | while read -r i; do
+            pactlq set-sink-mute "$i" 0
+            pactlq suspend-sink "$i" 0
+        done
+        pactlq -f json list sink-inputs | jq -r '.[].index' 2>/dev/null | while read -r i; do
+            pactlq set-sink-input-mute "$i" 0
+            pactlq suspend-sink-input "$i" 0
+        done
+        say "音频已复位" "所有声道取消静音、取消暂停，恢复默认输出"
+        echo "已复位：所有声卡/播放流取消静音与暂停，强制采样率已清除"
+        ;;
+    __watch) watch_loop ;;
+    status)
+        # 格式: state|源采样率|链路采样率|链路格式|是否直出|应用|流数|图采样率|设备|链路位深|源格式|源位深
+        if [ -f "$FLAG" ]; then
+            printf 'on|%s\n' "$(metrics)"
+        else
+            printf 'off|||||||||||\n'
+        fi
+        ;;
+    metrics)
+        m=$(metrics)
+        f() { printf '%s' "$m" | cut -d'|' -f"$1"; }
+        printf '  源采样率            : %s\n' "$( [ -n "$(f 1)" ] && echo "$(f 1) Hz" || echo '无播放流' )"
+        printf '  源格式 / 位深       : %s  →  %s bit\n' "$( [ -n "$(f 10)" ] && echo "$(f 10)" || echo '—' )" "$( [ -n "$(f 11)" ] && echo "$(f 11)" || echo '—' )"
+        printf '  DAC 链路采样率      : %s Hz\n' "$(f 2)"
+        printf '  DAC 链路格式 / 位深 : %s  →  %s bit\n' "$(f 3)" "$(f 9)"
+        printf '  是否直出(bit-perfect): %s\n' "$( [ "$(f 4)" = "1" ] && echo '是 ✓' || echo '否（源与链路不一致）' )"
+        printf '  播放应用            : %s\n' "$( [ -n "$(f 5)" ] && echo "$(f 5)" || echo '—' )"
+        printf '  活动流数            : %s\n' "$(f 6)"
+        printf '  PipeWire 图采样率   : %s Hz\n' "$(f 7)"
+        printf '  输出设备            : %s\n' "$(f 8)"
+        ;; 
+    info)
+        echo "USB 输出设备        : $(dac_desc)"
+        echo "sink 名             : $(dac_name)"
+        echo "支持采样率          : $(usb_supported_rates)"
+        echo "PipeWire 图采样率   : $(pw-metadata -n settings 2>/dev/null | grep "key:'clock.rate'" | grep -oE "value:'[0-9]+'" | grep -oE '[0-9]+')"
+        echo "强制采样率          : $(pw-metadata -n settings 2>/dev/null | grep clock.force-rate | grep -oE "value:'[0-9]+'" | grep -oE '[0-9]+')"
+        ;;
+    *)
+        echo "用法: $0 {on|off|toggle|status|info}" >&2
+        exit 2
+        ;;
+esac

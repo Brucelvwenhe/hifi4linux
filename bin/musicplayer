@@ -1,0 +1,22 @@
+#!/bin/bash
+# ============================================================
+#  音乐库播放器 —— 启动器
+#  先拉起后端 musicd.py，再启动 QML 界面
+# ============================================================
+set -u
+
+BACKEND="$HOME/.local/bin/musicd.py"
+FRONTEND="$HOME/.local/share/musicplayer/main.qml"
+LOG="${XDG_RUNTIME_DIR:-/tmp}/musicd.log"
+
+# 后端未运行则启动
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/musicd.pid"
+if ! { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }; then
+    setsid python3 "$BACKEND" >"$LOG" 2>&1 &
+    for _ in $(seq 1 30); do
+        curl -s -o /dev/null "http://127.0.0.1:8787/state" && break
+        sleep 0.2
+    done
+fi
+
+exec qml6 "$FRONTEND"

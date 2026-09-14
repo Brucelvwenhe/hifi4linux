@@ -1,0 +1,75 @@
+#!/bin/bash
+# ============================================================
+#  theme-opacity —— 一键调节桌面毛玻璃的不透明度
+#
+#  用法:
+#    theme-opacity 0.5     设为 50% 不透明（越大越实、字越清楚）
+#    theme-opacity         查看当前值
+#    theme-opacity +0.05   在当前基础上增加
+#
+#  影响范围: 面板 / 开始菜单 / 托盘弹窗 / 右键菜单 / KDE 程序窗口背景
+#  调完自动重启 plasmashell 生效（约 3 秒）
+# ============================================================
+set -u
+THEME="$HOME/.local/share/plasma/desktoptheme/frosted"
+SCHEME="$HOME/.local/share/color-schemes/FrostedDark.colors"
+MARK="$HOME/.cache/oo-install/theme-opacity"
+
+cur() { [ -f "$MARK" ] && cat "$MARK" || echo "0.45"; }
+
+if [ $# -eq 0 ]; then
+    echo "当前不透明度: $(cur)"
+    exit 0
+fi
+
+arg="$1"
+if [[ "$arg" == +* ]] || [[ "$arg" == -* ]]; then
+    val=$(python3 -c "print(max(0.15, min(1.0, $(cur) + ($arg))))")
+else
+    val=$(python3 -c "print(max(0.15, min(1.0, $arg)))")
+fi
+
+mkdir -p "$(dirname "$MARK")"
+echo "$val" > "$MARK"
+
+python3 - "$val" <<'PY'
+import re, sys, os, gzip
+val = float(sys.argv[1])
+v = f"{val:.2f}"
+theme  = os.path.expanduser("~/.local/share/plasma/desktoptheme/frosted")
+scheme = os.path.expanduser("~/.local/share/color-schemes/FrostedDark.colors")
+
+# 1) 面板 + 弹窗背景：把所有背景元素的 opacity 统一成 val
+for rel in ("widgets/panel-background.svg", "widgets/background.svg", "dialogs/background.svg"):
+    p = os.path.join(theme, rel)
+    if not os.path.exists(p):
+        continue
+    s = open(p, encoding="utf-8").read()
+    s2 = re.sub(r'opacity:0\.\d+;fill:currentColor', f'opacity:{v};fill:currentColor', s)
+    s2 = re.sub(r'(style=")opacity:0\.\d+(;fill:currentColor)', rf'\g<1>opacity:{v}\g<2>', s2)
+    open(p, "w", encoding="utf-8").write(s2)
+    print(f"  {rel}: opacity -> {v}")
+
+# 2) 工具提示
+tp = os.path.join(theme, "widgets/tooltip.svg")
+if os.path.exists(tp):
+    s = open(tp, encoding="utf-8").read()
+    s = re.sub(r'opacity:0?\.\d+', f'opacity:{v}', s)
+    open(tp, "w", encoding="utf-8").write(s)
+    print(f"  widgets/tooltip.svg: opacity -> {v}")
+
+# 3) KDE 程序窗口背景（调色板 alpha）
+alpha = int(round(val * 255))
+if os.path.exists(scheme):
+    s = open(scheme, encoding="utf-8").read()
+    def fix(m):
+        return f"{m.group(1)}={m.group(2)},{m.group(3)},{m.group(4)},{alpha}"
+    s = re.sub(r'(BackgroundNormal|BackgroundAlternate)=(\d+),(\d+),(\d+)(?:,\d+)?', fix, s)
+    open(scheme, "w", encoding="utf-8").write(s)
+    print(f"  FrostedDark.colors: alpha -> {alpha}")
+PY
+
+rm -f "$HOME"/.cache/plasma_theme_*.kcache
+systemctl --user restart plasma-plasmashell.service
+sleep 4
+echo "已应用：不透明度 $val（面板/弹窗/窗口）"
