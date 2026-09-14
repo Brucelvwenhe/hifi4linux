@@ -63,6 +63,9 @@ PlasmoidItem {
     }
 
     function refresh() { exec.connectSource(root.bin + " status"); }
+    // 启动音乐库播放器。必须用 connectSource —— 组件里只有这一条通路
+    // 是确定能跑起来的（之前的 run() 是个不存在的函数，所以点了没反应）
+    function launch()  { exec.connectSource(root.bin + " player"); }
     function toggle()  { exec.connectSource(root.bin + " toggle"); afterTimer.restart(); }
 
     Timer { id: afterTimer; interval: 1200; repeat: false; onTriggered: root.refresh() }
@@ -189,7 +192,7 @@ PlasmoidItem {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         propagateComposedEvents: false
-                        onClicked: root.run(root.bin + " player")
+                        onClicked: root.launch()
                     }
                 }
 
