@@ -189,7 +189,7 @@ PlasmoidItem {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         propagateComposedEvents: false
-                        onClicked: root.run("setsid -f " + root.playerBin + " </dev/null >/dev/null 2>&1")
+                        onClicked: root.run(root.bin + " player")
                     }
                 }
 

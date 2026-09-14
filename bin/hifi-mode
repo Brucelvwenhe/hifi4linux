@@ -157,6 +157,48 @@ do_on() {
     echo "支持的采样率：$(usb_supported_rates)"
 }
 
+# 恢复 PipeWire 对 USB DAC 的接管（独占期间 wireplumber 可能没建 sink）
+restore_pipewire() {
+    local usb
+    usb=$(pactlq -f json list sinks 2>/dev/null \
+        | jq -r '[.[]|select((.properties["device.bus"]//"")=="usb")|.name]|.[]' 2>/dev/null)
+    if [ -z "$usb" ]; then
+        systemctl --user restart wireplumber >/dev/null 2>&1
+        local i
+        for i in $(seq 1 20); do
+            sleep 0.7
+            usb=$(pactlq -f json list sinks 2>/dev/null \
+                | jq -r '[.[]|select((.properties["device.bus"]//"")=="usb")|.name]|.[]' 2>/dev/null)
+            [ -n "$usb" ] && break
+        done
+    fi
+    [ -z "$usb" ] && return 1
+    printf '%s\n' "$usb" | while read -r n; do
+        [ -n "$n" ] && { pactlq suspend-sink "$n" 1; }
+    done
+    sleep 0.4
+    printf '%s\n' "$usb" | while read -r n; do
+        [ -n "$n" ] && { pactlq suspend-sink "$n" 0; }
+    done
+    pactlq set-default-sink "$(printf '%s' "$usb" | head -1)"
+    return 0
+}
+
+# 启动音乐库播放器。
+# 用 systemd-run 交给 systemd 拉起 —— 这样进程完全脱离调用者
+# （Plasma 的 executable 数据源、终端等），不会被连带杀掉。
+launch_player() {
+    local bin="$HOME/.local/bin/musicplayer"
+    [ -x "$bin" ] || { echo "找不到播放器: $bin" >&2; return 1; }
+    if command -v systemd-run >/dev/null 2>&1; then
+        systemd-run --user --collect --quiet \
+            --unit="musicplayer-$(date +%s)-$$" "$bin" \
+            && { echo "已启动音乐库播放器"; return 0; }
+    fi
+    setsid -f "$bin" </dev/null >/dev/null 2>&1
+    echo "已启动音乐库播放器"
+}
+
 do_off() {
     if [ ! -f "$FLAG" ]; then echo "HiFi 模式已是关闭状态"; return 0; fi
 
@@ -182,6 +224,10 @@ do_off() {
 
     say "HiFi 直出模式：已关闭" "已恢复共享输出与自动重采样"
     echo "HiFi 模式已关闭"
+
+    # 恢复 PipeWire 对 DAC 的接管（独占期间 wireplumber 可能没建 sink）
+    restore_pipewire
+
 }
 
 # 采样格式 -> 位深（s32le=32, s24le3=24, s16le=16, float32le=32 浮点）
@@ -304,6 +350,7 @@ case "${1:-status}" in
         say "音频已复位" "所有声道取消静音、取消暂停，恢复默认输出"
         echo "已复位：所有声卡/播放流取消静音与暂停，强制采样率已清除"
         ;;
+    player)  launch_player ;;
     __watch) watch_loop ;;
     status)
         # 格式: state|源采样率|链路采样率|链路格式|是否直出|应用|流数|图采样率|设备|链路位深|源格式|源位深

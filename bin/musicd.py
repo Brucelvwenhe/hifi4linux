@@ -23,8 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 HOME = os.path.expanduser("~")
-MUSIC_DIRS = [d for d in os.environ.get(
-    "HIFI_MUSIC_DIRS", os.path.join(HOME, "音乐")).split(":") if d]
+MUSIC_DIRS = [os.path.join(HOME, "音乐")]
 CACHE_DIR = os.path.join(HOME, ".cache", "musicd")
 LIB_CACHE = os.path.join(CACHE_DIR, "library.json")
 ART_CACHE = os.path.join(CACHE_DIR, "art")
@@ -447,26 +446,51 @@ def hifi_sync_loop():
         time.sleep(2)
 
 
-def _bounce_pipewire_sink():
-    """让 PipeWire 重新打开 USB DAC。
-    独占模式期间 PipeWire 会因设备被占用而进入错误状态，
-    释放后需要踢一下才会恢复，否则浏览器等应用一直没声音。"""
+def _usb_sinks():
     try:
-        dn = subprocess.run(
-            ["pactl", "-f", "json", "list", "sinks"], capture_output=True,
-            text=True).stdout
-        sinks = json.loads(dn)
-        usb = [x["name"] for x in sinks
-               if (x.get("properties", {}).get("device.bus") or "") == "usb"]
-        for name in usb:
-            subprocess.run(["pactl", "suspend-sink", name, "1"],
-                           capture_output=True, timeout=5)
-        time.sleep(0.4)
-        for name in usb:
-            subprocess.run(["pactl", "suspend-sink", name, "0"],
-                           capture_output=True, timeout=5)
+        out = subprocess.run(["pactl", "-f", "json", "list", "sinks"],
+                             capture_output=True, text=True, timeout=6).stdout
+        return [x["name"] for x in json.loads(out)
+                if (x.get("properties", {}).get("device.bus") or "") == "usb"]
     except Exception:
-        pass
+        return []
+
+
+def _bounce_pipewire_sink():
+    """让 PipeWire 重新接管 USB DAC。
+
+    独占模式期间 ALSA 设备被 mpv 占着，wireplumber 探测失败时
+    会静默地不给这个设备创建 sink —— 结果 DAC 从 PipeWire 里
+    整个消失，关掉直出后浏览器/播放器全都发不出声（用户遇到的
+    "两个都没声音"）。这种情况 suspend 是救不回来的，
+    必须重启 wireplumber 让它重新枚举设备。"""
+    usb = _usb_sinks()
+    if not usb:
+        # DAC 已从 PipeWire 消失 —— 重启 wireplumber 重新发现
+        print("musicd: PipeWire 中找不到 USB DAC，重启 wireplumber 恢复",
+              flush=True)
+        try:
+            subprocess.run(["systemctl", "--user", "restart", "wireplumber"],
+                           capture_output=True, timeout=20)
+        except Exception:
+            pass
+        for _ in range(20):
+            time.sleep(0.7)
+            usb = _usb_sinks()
+            if usb:
+                break
+        print(f"musicd: 恢复后找到 {len(usb)} 个 USB sink", flush=True)
+    for name in usb:
+        subprocess.run(["pactl", "suspend-sink", name, "1"],
+                       capture_output=True, timeout=5)
+    time.sleep(0.4)
+    for name in usb:
+        subprocess.run(["pactl", "suspend-sink", name, "0"],
+                       capture_output=True, timeout=5)
+    # 把默认输出指回 DAC（重启 wireplumber 后默认设备会跳到内建声卡）
+    if usb:
+        subprocess.run(["pactl", "set-default-sink", usb[0]],
+                       capture_output=True, timeout=5)
 
 
 # ---------------------------------------------------------------
@@ -900,7 +924,33 @@ class Handler(BaseHTTPRequestHandler):
 PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "musicd.pid")
 
 
+def _shutdown_restore(*_a):
+    """退出时一定要关掉直出。
+    否则 hifi-mode 的静音状态会留着，USB DAC 也可能不在 PipeWire 里，
+    结果是"关掉播放器后浏览器放视频没声音"。"""
+    try:
+        if MPV.hifi or hifi_state():
+            env = dict(os.environ); env["HIFI_NO_PLAYER"] = "1"
+            subprocess.run([HIFI_BIN, "off"], capture_output=True,
+                           timeout=25, env=env)
+            print("musicd: 退出，已关闭 HiFi 直出并恢复音频", flush=True)
+    except Exception:
+        pass
+    try:
+        os.unlink(PIDFILE)
+    except OSError:
+        pass
+
+
 def main():
+    import atexit
+    import signal
+    atexit.register(_shutdown_restore)
+    for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(_sig, lambda *_a: sys.exit(0))
+        except Exception:
+            pass
     try:
         with open(PIDFILE, "w") as f:
             f.write(str(os.getpid()))

@@ -128,6 +128,24 @@ hifi-mode rescue
 
 > 原理：独占期间 ALSA 设备被 mpv 占着，wireplumber 探测失败时会**静默地不给这个设备创建 sink**，DAC 就从 PipeWire 里整个消失了。这种情况 `suspend` 救不回来，必须重启 wireplumber。本程序在切回共享模式时会自动检测并修复。
 
+**关掉播放器后浏览器没声音 / DAC 不见了？**
+
+已自动处理：播放器退出时会**自动关闭直出**，取消所有声卡的静音，并把 USB DAC 交还 PipeWire。
+
+但如果是被 `kill -9` 强杀（或断电），清理逻辑来不及跑，手动执行：
+
+```bash
+hifi-mode rescue
+```
+
+**桌面组件按钮点不开播放器？**
+
+实现方式是调用 `hifi-mode player`，由 `systemd-run --user` 拉起进程 —— 这样它完全脱离 Plasma 数据源，不会被连带杀掉。手动等效命令：
+
+```bash
+hifi-mode player
+```
+
 **显示"重采样中 44100→48000"？**
 
 说明播放器没在用独占模式。检查：
