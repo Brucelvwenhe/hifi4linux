@@ -1,0 +1,22 @@
+pkgbase = hifi4linux
+	pkgdesc = Bit-perfect HiFi player for Linux: exclusive USB DAC output, automatic sample-rate switching, QML UI and KDE Plasma widget
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/brucelvwenhe/hifi4linux
+	arch = any
+	license = MIT
+	depends = mpv
+	depends = ffmpeg
+	depends = python
+	depends = qt6-declarative
+	depends = libpulse
+	depends = curl
+	depends = libnotify
+	optdepends = plasma-workspace: KDE Plasma 桌面组件（org.kde.plasma.* 模块）
+	optdepends = wireplumber: PipeWire 会话管理（PipeWire 用户建议安装）
+	provides = hifi4linux
+	conflicts = hifi4linux-git
+	source = hifi4linux::git+https://github.com/brucelvwenhe/hifi4linux.git#branch=main
+	sha256sums = SKIP
+
+pkgname = hifi4linux

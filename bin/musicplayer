@@ -5,8 +5,21 @@
 # ============================================================
 set -u
 
-BACKEND="$HOME/.local/bin/musicd.py"
-FRONTEND="$HOME/.local/share/musicplayer/main.qml"
+BACKEND=""
+FRONTEND=""
+# 后端与界面可能来自两种安装方式，按「本地优先」逐个探测：
+#   install.sh → ~/.local/bin/musicd.py        + ~/.local/share/musicplayer/main.qml
+#   AUR 包     → /usr/lib/hifi4linux/musicd.py + /usr/share/hifi4linux/main.qml
+for c in "$HOME/.local/bin/musicd.py" /usr/lib/hifi4linux/musicd.py; do
+    [ -r "$c" ] && { BACKEND="$c"; break; }
+done
+for c in "$HOME/.local/share/musicplayer/main.qml" /usr/share/hifi4linux/main.qml; do
+    [ -r "$c" ] && { FRONTEND="$c"; break; }
+done
+
+[ -n "$BACKEND"  ] || { echo "错误：找不到 musicd.py（本地或系统路径都没有）" >&2; exit 1; }
+[ -n "$FRONTEND" ] || { echo "错误：找不到 main.qml（本地或系统路径都没有）" >&2; exit 1; }
+
 LOG="${XDG_RUNTIME_DIR:-/tmp}/musicd.log"
 
 # 后端未运行则启动

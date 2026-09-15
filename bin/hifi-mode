@@ -188,8 +188,13 @@ restore_pipewire() {
 # 用 systemd-run 交给 systemd 拉起 —— 这样进程完全脱离调用者
 # （Plasma 的 executable 数据源、终端等），不会被连带杀掉。
 launch_player() {
-    local bin="$HOME/.local/bin/musicplayer"
-    [ -x "$bin" ] || { echo "找不到播放器: $bin" >&2; return 1; }
+    # 本地安装优先，其次系统包路径（AUR 包把可执行文件装到 /usr/bin）
+    local bin=""
+    local c
+    for c in "$HOME/.local/bin/musicplayer" /usr/bin/musicplayer; do
+        [ -x "$c" ] && { bin="$c"; break; }
+    done
+    [ -n "$bin" ] || { echo "找不到播放器（本地与 /usr/bin 都没有 musicplayer）" >&2; return 1; }
     if command -v systemd-run >/dev/null 2>&1; then
         systemd-run --user --collect --quiet \
             --unit="musicplayer-$(date +%s)-$$" "$bin" \

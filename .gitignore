@@ -4,3 +4,12 @@ pkg/
 src/
 __pycache__/
 *.pyc
+
+# makepkg 工作目录
+pkg/
+src/
+hifi4linux/
+
+# 构建产物
+*.pkg.tar.zst
+*.pkg.tar.xz

@@ -32,12 +32,12 @@ fi
 mkdir -p "$(dirname "$MARK")"
 echo "$val" > "$MARK"
 
-python3 - "$val" <<'PY'
-import re, sys, os, gzip
+python3 - "$val" "$THEME" "$SCHEME" <<'PY'
+import re, sys, os
 val = float(sys.argv[1])
 v = f"{val:.2f}"
-theme  = os.path.expanduser("~/.local/share/plasma/desktoptheme/frosted")
-scheme = os.path.expanduser("~/.local/share/color-schemes/FrostedDark.colors")
+theme  = sys.argv[2]
+scheme = sys.argv[3]
 
 # 1) 面板 + 弹窗背景：把所有背景元素的 opacity 统一成 val
 for rel in ("widgets/panel-background.svg", "widgets/background.svg", "dialogs/background.svg"):
