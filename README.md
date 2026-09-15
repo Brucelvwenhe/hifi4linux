@@ -44,25 +44,20 @@ hifi4linux 就是干这个的，而且把它做成了**日常能用的桌面软�
 ### Arch / CachyOS / EndeavourOS / Manjaro
 
 ```bash
-paru -S hifi4linux      # 或 yay -S hifi4linux
-```
-
-> [!NOTE]
-> AUR 包已准备完毕（PKGBUILD 与 .SRCINFO 均已验证可构建），
-> **上架流程见 [PUBLISHING-AUR.md](PUBLISHING-AUR.md)**。
-> 在包正式出现在 <https://aur.archlinux.org/packages/hifi4linux> 之前，
-> 请先用下面的手动方式安装。
-
-> 如果你之前用 `install.sh` 装过，请先执行一次 `./uninstall.sh`：
-> 本地安装（`~/.local`）会抢在系统包（`/usr`）前面，两份共存会导致版本混装。
-
-或手动安装：
-
-```bash
-git clone https://github.com/brucelvwenhe/hifi4linux.git
+git clone https://github.com/Brucelvwenhe/hifi4linux.git
 cd hifi4linux
 ./install.sh --deps
 ```
+
+> [!NOTE]
+> **AUR 包已完全准备好，但暂时无法上架。**
+> Arch 官方自 2026-06-15 起因「恶意软件包事件」**暂停了新账号注册**
+> （[公告](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/thread/4JRS73YVTE7JUYHHE3ZDUIHXYHXZ3YQQ/)），
+> 没有人工队列，也不接受加急。等注册恢复后即可用
+> `paru -S hifi4linux` 安装（PKGBUILD 与 .SRCINFO 已就位并通过构建验证）。
+> 在那之前，请用上面的方式安装 —— 功能完全一致。
+>
+> 恢复时间见 [Arch 新闻](https://archlinux.org/news/)。
 
 ### Debian / Ubuntu
 

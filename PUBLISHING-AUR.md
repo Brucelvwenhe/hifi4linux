@@ -1,5 +1,22 @@
 # 发布到 AUR —— 操作指南与收益说明
 
+> ## ⏸️ 当前状态：AUR 暂停新账号注册，暂时无法上架
+>
+> **2026-06-15 起**，Arch 官方因「恶意软件包事件」（约 1500+ 个 AUR 包被投毒）
+> **暂停了新账号注册**。官方公告明确说明：
+>
+> - 这是**平台级临时措施**，与你和你的网络无关
+> - **没有人工注册队列**，发邮件申请也无效
+> - **不要写脚本轮询注册页**，恢复消息只会发布在
+>   [aur-general](https://lists.archlinux.org/mailman3/lists/aur-general.lists.archlinux.org/)
+>   与 [Arch 新闻](https://archlinux.org/news/)
+>
+> 截至本文更新（2026-09-15）已关闭 **92 天**，Arch 新闻里**没有任何恢复公告**。
+> AUR 本身运转正常（已有账号可正常提交与更新），**仅新注册被冻结**。
+>
+> **结论：这件事只能等，且完全不影响你现在分发软件**（见第四节）。
+> 其余准备工作已全部完成，注册一恢复即可按第五节推送。
+
 本文档说明 hifi4linux 发布到 AUR（Arch User Repository）的**实际收益**、
 **已经为你准备好的东西**，以及**你要亲手做的几步**。
 
@@ -166,6 +183,91 @@ musicplayer
 ```
 
 这一步很重要：AUR 是用户本机编译，你要确认"从零开始"的路径也是通的。
+
+---
+
+## 四、不等 AUR，现在就能让别人装上
+
+这是最重要的一节。**AUR 只是"更方便"，不是"能不能装"** —— 注册关闭期间，
+下面这些渠道全部可用，而且其中第一条（GitHub Release）本来就该有。
+
+### 4.1 建一个 GitHub Release（最该做，5 分钟）
+
+现在只有 tag，没有 Release。Release 是别人点进仓库第一眼看到的东西，
+也是"这是个正式版本"的信号。
+
+```bash
+cd ~/Projects/hifi4linux
+
+# 用 gh（若已装并登录）
+gh release create v1.0.0 \
+  --title "hifi4linux v1.0.0 — 首个正式发布" \
+  --notes-file <(cat <<'EOF'
+## 安装
+
+### Arch / CachyOS / EndeavourOS / Manjaro
+```bash
+git clone https://github.com/Brucelvwenhe/hifi4linux.git
+cd hifi4linux && ./install.sh --deps
+```
+
+### Debian / Ubuntu
+```bash
+sudo apt install mpv ffmpeg python3 qml6-module-qtquick-controls pulseaudio-utils
+git clone https://github.com/Brucelvwenhe/hifi4linux.git
+cd hifi4linux && ./install.sh --no-plasma
+```
+
+## 亮点
+- 独占 USB DAC（ALSA exclusive），完全绕开 PipeWire 重采样
+- 采样率自动跟随（44.1k / 96k / 192k / 384k）
+- 读 /proc/asound hw_params 显示**真实**链路，不靠猜
+- 频谱砖墙音质检测、64 段实时频谱
+- 专辑 / 搜索 / 封面 / 歌词音乐库
+- KDE Plasma 桌面组件
+
+> AUR 包已准备完毕，但 Arch 官方暂停新账号注册（2026-06-15 起），
+> 恢复后即可 `paru -S hifi4linux`。
+EOF
+)
+```
+
+或者在网页上建：<https://github.com/Brucelvwenhe/hifi4linux/releases/new>
+选 tag `v1.0.0`，标题与说明填上面内容。
+
+### 4.2 让仓库更容易被搜到
+
+GitHub 的搜索权重看这几个字段（目前已填好描述与 topics，可再补）：
+
+- **About → Description**：已填 ✅
+- **About → Topics**：已填 12 个（`bit-perfect`、`alsa`、`hifi`、`kde-plasma` 等）✅
+- **About → Website**：还是空的。填上仓库或文档地址，会增加可信度
+- **Releases**：0 个 → 建了 v1.0.0 就有了 ⬜
+
+### 4.3 值得投递的几个地方（都不需要审核账号）
+
+AUR 关闭不代表没地方曝光。这些都是"发个帖/提个 PR"级别的成本：
+
+| 渠道 | 做法 | 适合度 |
+|---|---|---|
+| [r/linuxaudio](https://reddit.com/r/linuxaudio)、[r/archlinux](https://reddit.com/r/archlinux) | 发一篇"我做了个 Linux bit-perfect 播放器"的帖子 | 高 —— 正好是你的目标用户 |
+| [ArchWiki: Music players](https://wiki.archlinux.org/title/List_of_applications/Multimedia#Audio_players) | 你的软件符合收录条件即可加一行 | 高 —— 长期免费曝光 |
+| [linuxaudio.org](https://linuxaudio.org/) 邮件列表 | 介绍项目 | 中 |
+| [Awesome-Linux-Audio](https://github.com/awesome-linux-audio) 类清单 | 提 PR 加一行 | 中 |
+| [HiFi 论坛 / 耳机大家坛](https://www.erji.net/) 等中文社区 | 中文用户基数大且对 bit-perfect 敏感 | 高（你是中文项目） |
+
+> **注意**：ArchWiki 收录第三方软件有门槛（通常要求已在 AUR 或有独立条目）。
+> AUR 恢复后再投 Wiki 更稳。
+
+### 4.4 本地安装已经是一条完整路径
+
+别忘了：`./install.sh --deps` 会自动装依赖、装到 `~/.local`、装 Plasma 组件，
+**已经是"一键安装"**。它和 AUR 版的唯一差别是：
+
+- 需要先 `git clone`（AUR 是 `paru -S`）
+- 升级要 `git pull` 重跑（AUR 随 `paru -Syu`）
+
+对绝大多数用户来说，这个差别可以忽略 —— 所以**不要把发布卡在 AUR 上**。
 
 ---
 
