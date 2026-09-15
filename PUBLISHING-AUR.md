@@ -196,7 +196,7 @@ musicplayer
 现在只有 tag，没有 Release。Release 是别人点进仓库第一眼看到的东西，
 也是"这是个正式版本"的信号。
 
-```bash
+````bash
 cd ~/Projects/hifi4linux
 
 # 用 gh（若已装并登录）
@@ -230,7 +230,7 @@ cd hifi4linux && ./install.sh --no-plasma
 > 恢复后即可 `paru -S hifi4linux`。
 EOF
 )
-```
+````
 
 或者在网页上建：<https://github.com/Brucelvwenhe/hifi4linux/releases/new>
 选 tag `v1.0.0`，标题与说明填上面内容。
@@ -271,29 +271,24 @@ AUR 关闭不代表没地方曝光。这些都是"发个帖/提个 PR"级别的�
 
 ---
 
-## 四、发布后建议补的（提升被发现率）
+## 五、上架成功后建议补的（提升被发现率）
 
-AUR 包本身不会带来流量，流量靠 README。建议在 README 顶部加：
+AUR 包本身不会带来流量，流量靠 README。上架后建议在 README 安装章节加徽章：
 
 ```markdown
-## 安装
-
 [![AUR](https://img.shields.io/aur/version/hifi4linux)](https://aur.archlinux.org/packages/hifi4linux)
-
-Arch / CachyOS / EndeavourOS / Manjaro：
-```bash
-paru -S hifi4linux      # 或 yay -S hifi4linux
 ```
 
-其它发行版：见下方「安装」章节（install.sh）
-```
+另外可以：
+- 去 <https://aur.archlinux.org/packages/hifi4linux> 点自己的 **Vote**
+- 把 `paru -S hifi4linux` 写进 GitHub Release 说明
+- 此时再往 ArchWiki 投递会稳得多（Wiki 通常要求软件已有 AUR 条目）
 
-另外可以去 <https://aur.archlinux.org/packages/hifi4linux> 点自己的 **Vote**，
-并在 GitHub Release 里写上 AUR 安装方式。
+> **不要提前挂徽章**：包还没上架时徽章是 404，会显得项目不可信。
 
 ---
 
-## 五、以后每次发新版怎么做
+## 六、以后每次发新版怎么做
 
 假设要发 1.1.0：
 
@@ -322,7 +317,7 @@ git push
 
 ---
 
-## 六、风险与常见坑
+## 七、风险与常见坑
 
 | 坑 | 说明 | 现在是否已规避 |
 |---|---|---|
@@ -349,7 +344,7 @@ git push
 
 ---
 
-## 七、一句话总结
+## 八、一句话总结
 
 **收益**：把安装从"4 步手动"变成"1 条命令"，并让 Arch 系用户能搜到你 ——
 对一个 Linux 桌面音频项目来说，这是性价比最高的一次分发动作。
