@@ -1,4 +1,6 @@
-# Maintainer: brucelvwenhe <https://github.com/brucelvwenhe>
+# Maintainer: brucelvwenhe <YOUR_EMAIL@example.com>
+# ⚠️ 首次发布到 AUR 前，请把上面这行改成你的真实邮箱（AUR 要求此格式）。
+#    完整步骤见 PUBLISHING-AUR.md 第 4 步。
 # AUR 包：hifi4linux
 # 问题反馈：https://github.com/brucelvwenhe/hifi4linux/issues
 #
@@ -30,7 +32,7 @@ optdepends=(
 )
 provides=('hifi4linux')
 conflicts=('hifi4linux-git')
-source=("$pkgname::git+file:///home/bruce/Projects/hifi4linux#tag=v1.0.0")
+source=("$pkgname::git+$url.git#branch=main")
 sha256sums=('SKIP')
 
 pkgver() {

@@ -41,7 +41,22 @@ hifi4linux 就是干这个的，而且把它做成了**日常能用的桌面软�
 
 ## 安装
 
-### Arch / CachyOS / EndeavourOS
+### Arch / CachyOS / EndeavourOS / Manjaro
+
+```bash
+paru -S hifi4linux      # 或 yay -S hifi4linux
+```
+
+> [!NOTE]
+> AUR 包已准备完毕（PKGBUILD 与 .SRCINFO 均已验证可构建），
+> **上架流程见 [PUBLISHING-AUR.md](PUBLISHING-AUR.md)**。
+> 在包正式出现在 <https://aur.archlinux.org/packages/hifi4linux> 之前，
+> 请先用下面的手动方式安装。
+
+> 如果你之前用 `install.sh` 装过，请先执行一次 `./uninstall.sh`：
+> 本地安装（`~/.local`）会抢在系统包（`/usr`）前面，两份共存会导致版本混装。
+
+或手动安装：
 
 ```bash
 git clone https://github.com/brucelvwenhe/hifi4linux.git
@@ -186,9 +201,12 @@ hifi4linux/
 ├── qml/main.qml         # 播放器界面
 ├── plasma/              # KDE Plasma 桌面组件
 ├── desktop/             # .desktop 桌面项
-├── install.sh           # 一键安装
+├── .github/workflows/   # CI：shellcheck / py_compile / QML / PKGBUILD 校验
+├── install.sh           # 一键安装（装到 ~/.local）
 ├── uninstall.sh
-└── PKGBUILD             # Arch 打包
+├── PKGBUILD             # Arch 打包（装到 /usr，供 AUR）
+├── .SRCINFO             # AUR 必需元数据（由 makepkg --printsrcinfo 生成）
+└── PUBLISHING-AUR.md    # 发布到 AUR 的步骤与收益说明
 ```
 
 ## License
