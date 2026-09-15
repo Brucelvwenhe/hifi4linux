@@ -2,6 +2,9 @@
 
 **Linux 上的 bit-perfect（真直出）HiFi 播放器 + 现代界面**
 
+[![Release](https://img.shields.io/github/v/release/Brucelvwenhe/hifi4linux)](https://github.com/Brucelvwenhe/hifi4linux/releases/latest)
+[![License](https://img.shields.io/github/license/Brucelvwenhe/hifi4linux)](LICENSE)
+
 直出到底有多"直"？音频从文件解码到 USB DAC，**中间不经过任何重采样** —— 是多少 Hz 就输出多少 Hz，是多少 bit 就送多少 bit。
 
 ```
